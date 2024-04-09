@@ -1,3 +1,6 @@
+name: Publish Package
+
+# Run on the main branch or on a manual trigger
 on:
   push:
     tags:
