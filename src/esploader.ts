@@ -5,8 +5,6 @@ import { ROM } from "./targets/rom.js";
 import { customReset, usbJTAGSerialReset } from "./reset.js";
 import atob from "atob-lite";
 
-let secure_download_mode = false;
-
 /* global SerialPort */
 
 /**
@@ -202,12 +200,16 @@ export class ESPLoader {
   ESP_FLASH_DEFL_DATA = 0x11;
   ESP_FLASH_DEFL_END = 0x12;
   ESP_SPI_FLASH_MD5 = 0x13;
+  ESP_GET_SECURITY_INFO = 0x14;
 
   // Only Stub supported commands
   ESP_ERASE_FLASH = 0xd0;
   ESP_ERASE_REGION = 0xd1;
   ESP_READ_FLASH = 0xd2;
   ESP_RUN_USER_CODE = 0xd3;
+
+  // Flash encryption encrypted data command
+  ESP_FLASH_ENCRYPT_DATA = 0xD4
 
   ESP_IMAGE_MAGIC = 0xe9;
   ESP_CHECKSUM_MAGIC = 0xef;
