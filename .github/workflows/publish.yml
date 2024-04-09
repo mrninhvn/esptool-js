@@ -30,8 +30,8 @@ jobs:
       - name: Upload package file
         uses: actions/upload-artifact@v1
         with:
-          name: esptool-js-enc-${{ steps.version.outputs.version }}.tgz
-          path: esptool-js-enc-${{ steps.version.outputs.version }}.tgz
+          name: esptool-js-${{ steps.version.outputs.version }}.tgz
+          path: esptool-js-${{ steps.version.outputs.version }}.tgz
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1.0.0
