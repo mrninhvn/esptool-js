@@ -209,7 +209,7 @@ export class ESPLoader {
   ESP_RUN_USER_CODE = 0xd3;
 
   // Flash encryption encrypted data command
-  ESP_FLASH_ENCRYPT_DATA = 0xD4
+  ESP_FLASH_ENCRYPT_DATA = 0xd4;
 
   ESP_IMAGE_MAGIC = 0xe9;
   ESP_CHECKSUM_MAGIC = 0xef;
