@@ -5,6 +5,8 @@ import { ROM } from "./targets/rom.js";
 import { customReset, usbJTAGSerialReset } from "./reset.js";
 import atob from "atob-lite";
 
+let secure_download_mode = false;
+
 /* global SerialPort */
 
 /**
