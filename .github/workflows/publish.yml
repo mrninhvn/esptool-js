@@ -2,9 +2,8 @@ name: Publish Package
 
 on:
   push:
-    branches: ["encrypted-flash"]
-    tags:
-      - "v*"
+    branches:
+      - encrypted-flash
   workflow_dispatch:
 
 jobs:
