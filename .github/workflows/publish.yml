@@ -1,10 +1,8 @@
 name: Publish Package
 
-# Run on the main branch or on a manual trigger
 on:
   push:
-    tags:
-      - "v*"
+    branches: ["encrypted-flash"]
   workflow_dispatch:
 
 jobs:
