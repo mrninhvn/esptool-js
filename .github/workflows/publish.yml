@@ -38,7 +38,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref }}
-          release_name: Espressif ESPTOOL-JS ${{ github.ref }} with flash encryption support
+          release_name: Espressif ESPTOOL-JS v${{ steps.version.outputs.version }} with flash encryption support
           draft: true
           body: |
             ### Release Highlights
