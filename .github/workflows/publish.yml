@@ -3,6 +3,8 @@ name: Publish Package
 on:
   push:
     branches: ["encrypted-flash"]
+    tags:
+      - "v*"
   workflow_dispatch:
 
 jobs:
