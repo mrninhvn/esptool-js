@@ -6,7 +6,7 @@
     "allowSyntheticDefaultImports": true,
     "outDir": "./lib",
     "moduleResolution": "node",
-    "noUnusedLocals": true,
+    "noUnusedLocals": false,
     "noFallthroughCasesInSwitch": true,
     "noImplicitReturns": true,
     "forceConsistentCasingInFileNames": true,

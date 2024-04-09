@@ -5,6 +5,10 @@ import { ROM } from "./targets/rom.js";
 import { customReset, usbJTAGSerialReset } from "./reset.js";
 import atob from "atob-lite";
 
+/* Ninh.D.H 09.04.2024 ***********************************/
+let secureDownloadMode = false;
+/**********************************************************
+
 /* global SerialPort */
 
 /**
@@ -47,6 +51,14 @@ export interface FlashOptions {
    * @type {boolean}
    */
   compress: boolean;
+
+  /* Ninh.D.H 09.04.2024 ***********************************/
+  /**
+   * Flag indicating whether to encrypt flashing.
+   * @type {boolean}
+   */
+  encrypt: boolean;
+  /*********************************************************/
 
   /**
    * A function to report the progress of the flashing operation (optional).
@@ -200,7 +212,9 @@ export class ESPLoader {
   ESP_FLASH_DEFL_DATA = 0x11;
   ESP_FLASH_DEFL_END = 0x12;
   ESP_SPI_FLASH_MD5 = 0x13;
+  /* Ninh.D.H 09.04.2024 ***********************************/
   ESP_GET_SECURITY_INFO = 0x14;
+  /*********************************************************/
 
   // Only Stub supported commands
   ESP_ERASE_FLASH = 0xd0;
@@ -208,8 +222,10 @@ export class ESPLoader {
   ESP_READ_FLASH = 0xd2;
   ESP_RUN_USER_CODE = 0xd3;
 
+  /* Ninh.D.H 09.04.2024 ***********************************/
   // Flash encryption encrypted data command
   ESP_FLASH_ENCRYPT_DATA = 0xd4;
+  /*********************************************************/
 
   ESP_IMAGE_MAGIC = 0xe9;
   ESP_CHECKSUM_MAGIC = 0xef;
@@ -269,7 +285,9 @@ export class ESPLoader {
    */
   constructor(options: LoaderOptions) {
     this.IS_STUB = false;
-    this.FLASH_WRITE_SIZE = 0x4000;
+    /* Ninh.D.H 09.04.2024 ***********************************/
+    this.FLASH_WRITE_SIZE = 0x400;
+    /*********************************************************/
 
     this.transport = options.transport;
     this.baudrate = options.baudrate;
@@ -471,7 +489,10 @@ export class ESPLoader {
           return [val, data];
         } else if (data[0] != 0 && data[1] == this.ROM_INVALID_RECV_MSG) {
           await this.flushInput();
-          throw new ESPError("unsupported command error");
+          /* Ninh.D.H 09.04.2024 ***********************************/
+          console.warn("unsupported command: " + "0x0000".slice(0, 6 - op.toString(16).length) + op.toString(16));
+          // throw new ESPError("unsupported command error");
+          /*********************************************************/
         }
       }
     }
@@ -668,14 +689,56 @@ export class ESPLoader {
     this.info("\n\r", false);
 
     if (!detecting) {
-      const chipMagicValue = (await this.readReg(0x40001000)) >>> 0;
-      this.debug("Chip Magic " + chipMagicValue.toString(16));
-      const chip = await magic2Chip(chipMagicValue);
-      if (this.chip === null) {
-        throw new ESPError(`Unexpected CHIP magic value ${chipMagicValue}. Failed to autodetect chip type.`);
-      } else {
-        this.chip = chip as ROM;
+      /* Ninh.D.H 09.04.2024 *********************************************/
+      const res = (await this.checkCommand(
+        "get security info",
+        this.ESP_GET_SECURITY_INFO,
+        new Uint8Array(0),
+        0,
+      )) as Uint8Array;
+      const chip_id = res[4 + 9 - 1]; //IBBBBBBBBI
+      switch (chip_id) {
+        case 0: {
+          const { ESP32ROM } = await import("./targets/esp32");
+          this.chip = new ESP32ROM();
+          break;
+        }
+        case 2: {
+          const { ESP32S2ROM } = await import("./targets/esp32s2");
+          this.chip = new ESP32S2ROM();
+          break;
+        }
+        case 5: {
+          const { ESP32C3ROM } = await import("./targets/esp32c3");
+          this.chip = new ESP32C3ROM();
+          break;
+        }
+        case 9: {
+          const { ESP32S3ROM } = await import("./targets/esp32s3");
+          this.chip = new ESP32S3ROM();
+          break;
+        }
+        case 13: {
+          const { ESP32C6ROM } = await import("./targets/esp32c6");
+          this.chip = new ESP32C6ROM();
+          break;
+        }
+        default:
+          throw new ESPError(`Unexpected chip ID value ${chip_id}`);
       }
+
+      secureDownloadMode = false;
+      try {
+        const chip_magic_value = (await this.readReg(0x40001000)) >>> 0;
+        // await this.readReg(0x40001000) >>> 0;
+      } catch (e) {
+        secureDownloadMode = true;
+        this.debug("Read chip magic " + e);
+        this.info("Chip in Secure Boot", secureDownloadMode);
+      }
+      // delay 1000ms
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      /* Ninh.D.H 09.04.2024 *********************************************/
     }
   }
 
@@ -778,8 +841,13 @@ export class ESPLoader {
    * @param {number} hspiArg -  Argument for SPI attachment
    */
   async flashSpiAttach(hspiArg: number) {
-    const pkt = this._intToByteArray(hspiArg);
+    /* Ninh.D.H 09.04.2024 *******************************************************/
+    let pkt = this._intToByteArray(hspiArg);
+    if (!this.IS_STUB) {
+      pkt = this._appendArray(pkt, this._intToByteArray(0));
+    }
     await this.checkCommand("configure SPI flash pins", this.ESP_SPI_ATTACH, pkt);
+    /*****************************************************************************/
   }
 
   /**
@@ -803,7 +871,7 @@ export class ESPLoader {
    * @param {number} offset Offset to erase
    * @returns {number} Number of blocks (of size self.FLASH_WRITE_SIZE) to write.
    */
-  async flashBegin(size: number, offset: number) {
+  async flashBegin(size: number, offset: number, encrypt: boolean) {
     const numBlocks = Math.floor((size + this.FLASH_WRITE_SIZE - 1) / this.FLASH_WRITE_SIZE);
     const eraseSize = this.chip.getEraseSize(offset, size);
 
@@ -816,18 +884,21 @@ export class ESPLoader {
     }
 
     this.debug("flash begin " + eraseSize + " " + numBlocks + " " + this.FLASH_WRITE_SIZE + " " + offset + " " + size);
+
     let pkt = this._appendArray(this._intToByteArray(eraseSize), this._intToByteArray(numBlocks));
     pkt = this._appendArray(pkt, this._intToByteArray(this.FLASH_WRITE_SIZE));
     pkt = this._appendArray(pkt, this._intToByteArray(offset));
     if (this.IS_STUB == false) {
-      pkt = this._appendArray(pkt, this._intToByteArray(0)); // XXX: Support encrypted
+      /* Ninh.D.H 09.04.2024 ******************************************************************/
+      pkt = this._appendArray(pkt, this._intToByteArray(encrypt ? 1 : 0)); // Support encrypted
+      /****************************************************************************************/
     }
 
     await this.checkCommand("enter Flash download mode", this.ESP_FLASH_BEGIN, pkt, undefined, timeout);
 
-    const t2 = d.getTime();
+    const t2 = new Date().getTime();
     if (size != 0 && this.IS_STUB == false) {
-      this.info("Took " + (t2 - t1) / 1000 + "." + ((t2 - t1) % 1000) + "s to erase flash block");
+      this.info("Took " + (t2 - t1) / 1000 + "s to erase flash block");
     }
     return numBlocks;
   }
@@ -893,6 +964,19 @@ export class ESPLoader {
 
     await this.checkCommand("write to target Flash after seq " + seq, this.ESP_FLASH_DATA, pkt, checksum, timeout);
   }
+
+  /* Ninh.D.H 09.04.2024 ******************************************************************/
+  /**
+   * Write encrypt block to flash, retry if fail
+   * @param {Uint8Array} data Unsigned 8-bit array data.
+   * @param {number} seq Sequence number
+   * @param {number} timeout Timeout in milliseconds (ms)
+   */
+  async flashEncryptBlock(data: Uint8Array, seq: number, timeout: number) {
+    this.debug("Write encrypt block via normal write");
+    await this.flashBlock(data, seq, timeout);
+  }
+  /****************************************************************************************/
 
   /**
    * Write block to flash, send compressed, retry if fail
@@ -1230,24 +1314,61 @@ export class ESPLoader {
   async main(mode = "default_reset") {
     await this.detectChip(mode);
 
-    const chip = await this.chip.getChipDescription(this);
-    this.info("Chip is " + chip);
-    this.info("Features: " + (await this.chip.getChipFeatures(this)));
+    /* Ninh.D.H 09.04.2024 ******************************************************************/
+    if (!secureDownloadMode) {
+      const chip = await this.chip.getChipDescription(this);
+      this.info("Chip is " + chip);
+      this.info("Features: " + (await this.chip.getChipFeatures(this)));
+      this.info("MAC: " + (await this.chip.readMac(this)));
+      await this.chip.readMac(this);
+    }
     this.info("Crystal is " + (await this.chip.getCrystalFreq(this)) + "MHz");
-    this.info("MAC: " + (await this.chip.readMac(this)));
-    await this.chip.readMac(this);
+    /* Ninh.D.H 09.04.2024 ******************************************************************/
 
     if (typeof this.chip.postConnect != "undefined") {
       await this.chip.postConnect(this);
     }
 
-    await this.runStub();
+    /* Ninh.D.H 09.04.2024 ******************************************************************/
+    if (!secureDownloadMode) {
+      await this.runStub();
+    }
 
-    if (this.romBaudrate !== this.baudrate) {
+    if (!this.IS_STUB) {
+      this.info("Enabling default SPI flash mode...");
+      await this.flashSpiAttach(0);
+    }
+
+    if (this.IS_STUB && this.romBaudrate !== this.baudrate) {
       await this.changeBaud();
     }
-    return chip;
+    return this.chip;
+    /* Ninh.D.H 09.04.2024 ******************************************************************/
   }
+
+  /* Ninh.D.H 09.04.2024 ******************************************************************/
+  /**
+   * Execute the read MAC function of ESPLoader.
+   * @param {string} mode Reset mode to use
+   * @returns {string} chip ROM
+   */
+  async getMac() {
+    if (!secureDownloadMode) {
+      this.info("MAC: " + (await this.chip.readMac(this)));
+      // await this.chip.readMac(this);
+      return {
+        mac: await this.chip.readMac(this),
+        success: true,
+      };
+    } else {
+      // throw new ESPError ("GET MAC NOT SUPPORTED")
+      return {
+        message: "GET MAC NOT SUPPORTED",
+        success: false,
+      };
+    }
+  }
+  /******************************************************************************************/
 
   /**
    * Get flash size bytes from flash size string.
@@ -1358,6 +1479,7 @@ export class ESPLoader {
       await this.eraseFlash();
     }
     let image: string, address: number;
+    const encrypt = options.encrypt;
     for (let i = 0; i < options.fileArray.length; i++) {
       this.debug("Data Length " + options.fileArray[i].data.length);
       image = options.fileArray[i].data;
@@ -1382,7 +1504,9 @@ export class ESPLoader {
         image = this.ui8ToBstr(deflate(uncimage, { level: 9 }));
         blocks = await this.flashDeflBegin(uncsize, image.length, address);
       } else {
-        blocks = await this.flashBegin(uncsize, address);
+        /* Ninh.D.H 09.04.2024 *******************************************/
+        blocks = await this.flashBegin(uncsize, address, encrypt);
+        /*****************************************************************/
       }
       let seq = 0;
       let bytesSent = 0;
@@ -1429,7 +1553,13 @@ export class ESPLoader {
             timeout = blockTimeout;
           }
         } else {
-          throw new ESPError("Yet to handle Non Compressed writes");
+          /* Ninh.D.H 09.04.2024 *******************************************/
+          if (encrypt) {
+            await this.flashEncryptBlock(block, seq, timeout);
+          } else {
+            await this.flashBlock(block, seq, timeout);
+          }
+          /*****************************************************************/
         }
         bytesSent += block.length;
         image = image.slice(this.FLASH_WRITE_SIZE, image.length);
@@ -1468,7 +1598,9 @@ export class ESPLoader {
     this.info("Leaving...");
 
     if (this.IS_STUB) {
-      await this.flashBegin(0, 0);
+      /* Ninh.D.H 09.04.2024 ************/
+      await this.flashBegin(0, 0, false);
+      /**********************************/
       if (options.compress) {
         await this.flashDeflFinish();
       } else {
@@ -1511,7 +1643,9 @@ export class ESPLoader {
   async softReset() {
     if (!this.IS_STUB) {
       // "run user code" is as close to a soft reset as we can do
-      await this.flashBegin(0, 0);
+      /* Ninh.D.H 09.04.2024 ************/
+      await this.flashBegin(0, 0, false);
+      /**********************************/
       await this.flashFinish(false);
     } else if (this.chip.CHIP_NAME != "ESP8266") {
       throw new ESPError("Soft resetting is currently only supported on ESP8266");
